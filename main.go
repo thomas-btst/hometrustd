@@ -11,6 +11,8 @@ import (
 	godbus "github.com/godbus/dbus/v5"
 )
 
+const ProgramName = "hometrustd"
+
 func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

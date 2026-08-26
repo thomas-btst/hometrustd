@@ -6,6 +6,11 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
+type (
+	Property string
+	Method   string
+)
+
 type Object struct {
 	object dbus.BusObject
 }
@@ -16,14 +21,30 @@ func newObject(object dbus.BusObject) *Object {
 	}
 }
 
+func (o *Object) qualifyMember(member string) string {
+	return fmt.Sprintf("%s.%s", o.object.Destination(), member)
+}
+
 func (o *Object) Property(property Property) (any, error) {
-	fullProperty := fmt.Sprintf("%s.%s", o.object.Destination(), property)
+	fullProperty := o.qualifyMember(string(property))
+
 	variant, err := o.object.GetProperty(fullProperty)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get property '%s' for path '%s': %w", property, o.object.Path(), err)
 	}
 
 	return variant.Value(), nil
+}
+
+func (o *Object) Call(method Method, args ...any) (*dbus.Call, error) {
+	fullMethod := o.qualifyMember(string(method))
+
+	call := o.object.Call(fullMethod, 0, args...)
+	if call.Err != nil {
+		return call, fmt.Errorf("failed to call method '%s' for path '%s': %w", method, o.object.Path(), call.Err)
+	}
+
+	return call, nil
 }
 
 func (o *Object) String(property Property) (string, error) {

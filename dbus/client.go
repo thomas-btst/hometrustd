@@ -5,8 +5,6 @@ import (
 	"github.com/godbus/dbus/v5"
 )
 
-type Property string
-
 type Client struct {
 	Destination string
 	Conn        *dbus.Conn
