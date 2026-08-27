@@ -37,15 +37,8 @@ type Monitor struct {
 
 type State struct {
 	Connected bool
-	SSID      string
 	BSSID     string
-}
-
-func (w State) String() string {
-	if !w.Connected {
-		return "Disconnected"
-	}
-	return fmt.Sprintf("Connected (SSID: %s, BSSID: %s)", w.SSID, w.BSSID)
+	SSID      string
 }
 
 func NewMonitor(conn *godbus.Conn) *Monitor {
@@ -196,7 +189,7 @@ func (n *Monitor) Info() (State, error) {
 
 	return State{
 		Connected: true,
-		SSID:      string(ssidBytes),
 		BSSID:     bssid,
+		SSID:      string(ssidBytes),
 	}, nil
 }

@@ -23,12 +23,14 @@ type IdleInhibitor interface {
 type App struct {
 	networkWatcher NetworkWatcher
 	idleInhibitor  IdleInhibitor
+	config         *Config
 }
 
-func NewApp(networkWatcher NetworkWatcher, idleInhibitor IdleInhibitor) *App {
+func NewApp(networkWatcher NetworkWatcher, idleInhibitor IdleInhibitor, cfg *Config) *App {
 	return &App{
 		networkWatcher: networkWatcher,
 		idleInhibitor:  idleInhibitor,
+		config:         cfg,
 	}
 }
 
@@ -39,21 +41,36 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	for networkState := range networkStates {
-		slog.Info("Network state", slog.Any("state", networkState)) // TODO: move to connected to home
-
-		if networkState.Connected {
-			if err := a.idleInhibitor.Inhibit(
-				fmt.Sprintf(
-					"Connected to Wi-Fi network %s (%s)",
-					networkState.SSID, networkState.BSSID,
-				),
-			); err != nil {
-				slog.Error("Failed to inhibit idle", slog.Any("error", err))
+		if !networkState.Connected || !a.config.IsTrustedNetwork(networkState.BSSID) {
+			if networkState.Connected {
+				slog.Info(
+					"Connected to untrusted Wi-Fi network",
+					slog.String("bssid", networkState.BSSID),
+					slog.String("ssid", networkState.SSID),
+				)
+			} else {
+				slog.Info("Disconnected from Wi-Fi network")
 			}
-		} else {
+
 			if err := a.idleInhibitor.Uninhibit(); err != nil {
 				slog.Error("Failed to uninhibit idle", slog.Any("error", err))
 			}
+			continue
+		}
+
+		slog.Info(
+			"Connected to trusted Wi-Fi network",
+			slog.String("bssid", networkState.BSSID),
+			slog.String("ssid", networkState.SSID),
+		)
+
+		if err := a.idleInhibitor.Inhibit(
+			fmt.Sprintf(
+				"Connected to Wi-Fi trusted network %s (%s)",
+				networkState.SSID, networkState.BSSID,
+			),
+		); err != nil {
+			slog.Error("Failed to inhibit idle", slog.Any("error", err))
 		}
 	}
 

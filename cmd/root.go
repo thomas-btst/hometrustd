@@ -13,11 +13,13 @@ import (
 	"github.com/thomas-btst/hometrustd/internal/network"
 )
 
+var trustedNetworks []string
+
 var rootCmd = &cobra.Command{
 	Use:   "hometrustd",
 	Short: "Daemon monitoring network status to manage system idle inhibition",
-	Long: `HomeTrustd is a Linux daemon that monitors network connectivity (via NetworkManager)
-and automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi networks.`,
+	Long: `HomeTrustd is a Linux daemon that monitors network connectivity (via NetworkManager) and
+automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi networks.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		systemConn, err := dbus.ConnectSystemBus()
 		if err != nil {
@@ -42,7 +44,12 @@ and automatically manages system idle inhibition (via D-Bus) based on trusted Wi
 		netMon := network.NewMonitor(systemConn)
 		idleInh := idle.NewInhibitor(sessionConn)
 
-		app := daemon.NewApp(netMon, idleInh)
+		cfg := daemon.NewConfig(trustedNetworks)
+		if err := cfg.Validate(); err != nil {
+			slog.Warn("Configuration validation failed", slog.Any("error", err))
+		}
+
+		app := daemon.NewApp(netMon, idleInh, cfg)
 
 		if err := app.Run(cmd.Context()); err != nil {
 			return fmt.Errorf("failed to run daemon: %w", err)
@@ -50,6 +57,16 @@ and automatically manages system idle inhibition (via D-Bus) based on trusted Wi
 
 		return nil
 	},
+}
+
+func init() {
+	rootCmd.Flags().StringSliceVarP(
+		&trustedNetworks,
+		"trusted-networks",
+		"t",
+		nil,
+		"Comma-separated list of trusted Wi-Fi BSSIDs",
+	)
 }
 
 func Execute() {
