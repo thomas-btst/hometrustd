@@ -1,11 +1,13 @@
-package main
+// Package idle provides functionality to inhibit the system's idle state, preventing the screensaver or power management from activating while certain operations are ongoing.
+package idle
 
 import (
 	"fmt"
+	"os"
 	"sync"
 
 	godbus "github.com/godbus/dbus/v5"
-	"github.com/thomas-btst/hometrustd/dbus"
+	"github.com/thomas-btst/hometrustd/internal/dbus"
 )
 
 const dbusScreensaverInterface string = "org.freedesktop.ScreenSaver"
@@ -17,25 +19,25 @@ const (
 	dbusUninhibitCall dbus.Method = "UnInhibit"
 )
 
-type IdleInhibitor struct {
+type Inhibitor struct {
 	mu     sync.Mutex
 	client *dbus.Client
 	cookie *uint32
 }
 
-func NewIdleInhibitor(conn *godbus.Conn) *IdleInhibitor {
-	return &IdleInhibitor{
+func NewInhibitor(conn *godbus.Conn) *Inhibitor {
+	return &Inhibitor{
 		client: dbus.NewClient(dbusScreensaverInterface, conn),
 	}
 }
 
-func (i *IdleInhibitor) IsActive() bool {
+func (i *Inhibitor) IsActive() bool {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	return i.cookie != nil
 }
 
-func (i *IdleInhibitor) Inhibit(reason string) error {
+func (i *Inhibitor) Inhibit(reason string) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
@@ -45,7 +47,7 @@ func (i *IdleInhibitor) Inhibit(reason string) error {
 
 	object := i.client.Object(dbusScreensaverPath)
 
-	call, err := object.Call(dbusInhibitCall, ProgramName, reason)
+	call, err := object.Call(dbusInhibitCall, os.Args[0], reason)
 	if err != nil {
 		return fmt.Errorf("failed to call Inhibit on screensaver: %w", err)
 	}
@@ -59,7 +61,7 @@ func (i *IdleInhibitor) Inhibit(reason string) error {
 	return nil
 }
 
-func (i *IdleInhibitor) Uninhibit() error {
+func (i *Inhibitor) Uninhibit() error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 

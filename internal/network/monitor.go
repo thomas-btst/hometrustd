@@ -1,4 +1,5 @@
-package main
+// Package network provides a NetworkMonitor that uses D-Bus to monitor the Wi-Fi connection state on Linux systems using NetworkManager.
+package network
 
 import (
 	"context"
@@ -6,15 +7,15 @@ import (
 	"log/slog"
 
 	godbus "github.com/godbus/dbus/v5"
-	"github.com/thomas-btst/hometrustd/dbus"
+	"github.com/thomas-btst/hometrustd/internal/dbus"
 )
 
 const (
-	dbusNetworkManagerInterface        string = "org.freedesktop.NetworkManager"
+	dbusNMInterface                    string = "org.freedesktop.NetworkManager"
 	dbusFreedesktopPropertiesInterface string = "org.freedesktop.DBus.Properties"
 )
 
-const dbusNetworkManagerPath dbus.Path = "/org/freedesktop/NetworkManager"
+const dbusNMPath dbus.Path = "/org/freedesktop/NetworkManager"
 
 const (
 	dbusPrimaryProperty     dbus.Property = "PrimaryConnection"
@@ -30,34 +31,34 @@ const (
 	dbusDeviceTypeWifi   = 2
 )
 
-type NetworkMonitor struct {
+type Monitor struct {
 	client *dbus.Client
 }
 
-type WifiState struct {
+type State struct {
 	Connected bool
 	SSID      string
 	BSSID     string
 }
 
-func (w WifiState) String() string {
+func (w State) String() string {
 	if !w.Connected {
 		return "Disconnected"
 	}
 	return fmt.Sprintf("Connected (SSID: %s, BSSID: %s)", w.SSID, w.BSSID)
 }
 
-func NewNetworkMonitor(conn *godbus.Conn) *NetworkMonitor {
-	return &NetworkMonitor{
-		client: dbus.NewClient(dbusNetworkManagerInterface, conn),
+func NewMonitor(conn *godbus.Conn) *Monitor {
+	return &Monitor{
+		client: dbus.NewClient(dbusNMInterface, conn),
 	}
 }
 
-func (n *NetworkMonitor) Watch(ctx context.Context) (<-chan WifiState, error) {
+func (n *Monitor) Watch(ctx context.Context) (<-chan State, error) {
 	conn := n.client.Conn
 
 	matchOptions := []godbus.MatchOption{
-		godbus.WithMatchObjectPath(godbus.ObjectPath(dbusNetworkManagerPath)),
+		godbus.WithMatchObjectPath(godbus.ObjectPath(dbusNMPath)),
 		godbus.WithMatchInterface(dbusFreedesktopPropertiesInterface),
 		godbus.WithMatchMember(dbusPropertiesSignal),
 	}
@@ -69,7 +70,7 @@ func (n *NetworkMonitor) Watch(ctx context.Context) (<-chan WifiState, error) {
 	signals := make(chan *godbus.Signal, 10)
 	conn.Signal(signals)
 
-	states := make(chan WifiState, cap(signals))
+	states := make(chan State, cap(signals))
 
 	go func() {
 		defer close(states)
@@ -85,9 +86,9 @@ func (n *NetworkMonitor) Watch(ctx context.Context) (<-chan WifiState, error) {
 			)
 		}
 
-		send := func(wifiState WifiState) bool {
+		send := func(state State) bool {
 			select {
-			case states <- wifiState:
+			case states <- state:
 				return true
 			case <-ctx.Done():
 				return false
@@ -133,11 +134,11 @@ func (n *NetworkMonitor) Watch(ctx context.Context) (<-chan WifiState, error) {
 	return states, nil
 }
 
-func (n *NetworkMonitor) Info() (WifiState, error) {
-	disconnected := WifiState{Connected: false}
+func (n *Monitor) Info() (State, error) {
+	disconnected := State{Connected: false}
 
 	// 1. Primary active connection
-	connPath, err := n.client.Object(dbusNetworkManagerPath).Path(dbusPrimaryProperty)
+	connPath, err := n.client.Object(dbusNMPath).Path(dbusPrimaryProperty)
 	switch {
 	case err != nil:
 		return disconnected, fmt.Errorf("failed to read primary connection: %w", err)
@@ -193,7 +194,7 @@ func (n *NetworkMonitor) Info() (WifiState, error) {
 		return disconnected, fmt.Errorf("failed to read access point Ssid: %w", err)
 	}
 
-	return WifiState{
+	return State{
 		Connected: true,
 		SSID:      string(ssidBytes),
 		BSSID:     bssid,
