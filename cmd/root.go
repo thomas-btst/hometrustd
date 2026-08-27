@@ -18,7 +18,7 @@ var trustedNetworks []string
 var rootCmd = &cobra.Command{
 	Use:   "hometrustd",
 	Short: "Daemon monitoring network status to manage system idle inhibition",
-	Long: `HomeTrustd is a Linux daemon that monitors network connectivity (via NetworkManager) and
+	Long: `HomeTrust Daemon is a Linux daemon that monitors network connectivity (via NetworkManager) and
 automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi networks.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		systemConn, err := dbus.ConnectSystemBus()
