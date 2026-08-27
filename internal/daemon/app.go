@@ -35,6 +35,12 @@ func NewApp(networkWatcher NetworkWatcher, idleInhibitor IdleInhibitor, cfg *Con
 }
 
 func (a *App) Run(ctx context.Context) error {
+	defer func() {
+		if err := a.idleInhibitor.Uninhibit(); err != nil {
+			slog.Error("Failed to uninhibit idle on exit", slog.Any("error", err))
+		}
+	}()
+
 	networkStates, err := a.networkWatcher.Watch(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start network monitor watch: %w", err)
