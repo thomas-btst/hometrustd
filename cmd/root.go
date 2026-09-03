@@ -8,18 +8,21 @@ import (
 
 	"github.com/godbus/dbus/v5"
 	"github.com/spf13/cobra"
+	"github.com/thomas-btst/hometrustd/internal/cli"
 	"github.com/thomas-btst/hometrustd/internal/daemon"
 	"github.com/thomas-btst/hometrustd/internal/idle"
 	"github.com/thomas-btst/hometrustd/internal/network"
 )
 
-var trustedNetworks []string
+var trustedNetworks cli.OptionalStringMap
 
 var rootCmd = &cobra.Command{
 	Use:   "hometrustd",
 	Short: "Daemon monitoring network status to manage system idle inhibition",
 	Long: `HomeTrust Daemon is a Linux daemon that monitors network connectivity (via NetworkManager) and
 automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi networks.`,
+	Example: `  # Start daemon with trusted Wi-Fi BSSIDs and optional aliases
+  hometrustd -t 00:11:22:33:44:55=Home,66:77:88:99:AA:BB`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		systemConn, err := dbus.ConnectSystemBus()
 		if err != nil {
@@ -60,12 +63,11 @@ automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi 
 }
 
 func init() {
-	rootCmd.Flags().StringSliceVarP(
+	rootCmd.Flags().VarP(
 		&trustedNetworks,
 		"trusted-networks",
 		"t",
-		nil,
-		"Comma-separated list of trusted Wi-Fi BSSIDs",
+		"Comma-separated list of trusted Wi-Fi BSSIDs with optional aliases",
 	)
 }
 

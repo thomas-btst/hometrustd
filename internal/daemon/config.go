@@ -8,17 +8,16 @@ import (
 )
 
 type Config struct {
-	trustedNetworks map[string]struct{}
+	trustedNetworks map[string]string
 }
 
-func NewConfig(trustedNetworks []string) *Config {
-	trustNetMap := make(map[string]struct{}, len(trustedNetworks))
-	for _, bssid := range trustedNetworks {
-		trustNetMap[strings.ToUpper(bssid)] = struct{}{}
+func NewConfig(trustedNetworks map[string]string) *Config {
+	normalized := make(map[string]string, len(trustedNetworks))
+	for bssid, alias := range trustedNetworks {
+		normalized[strings.ToUpper(bssid)] = alias
 	}
-
 	return &Config{
-		trustedNetworks: trustNetMap,
+		trustedNetworks: normalized,
 	}
 }
 
@@ -36,11 +35,11 @@ func (c *Config) Validate() error {
 	return nil
 }
 
-func (c *Config) IsTrustedNetwork(bssid string) bool {
+func (c *Config) Lookup(bssid string) (string, bool) {
 	if c == nil || len(c.trustedNetworks) == 0 {
-		return false
+		return "", false
 	}
 
-	_, ok := c.trustedNetworks[strings.ToUpper(bssid)]
-	return ok
+	alias, ok := c.trustedNetworks[strings.ToUpper(bssid)]
+	return alias, ok
 }

@@ -47,7 +47,8 @@ func (a *App) Run(ctx context.Context) error {
 	}
 
 	for networkState := range networkStates {
-		if !networkState.Connected || !a.config.IsTrustedNetwork(networkState.BSSID) {
+		alias, ok := a.config.Lookup(networkState.BSSID)
+		if !networkState.Connected || !ok {
 			if networkState.Connected {
 				slog.Info(
 					"Connected to untrusted Wi-Fi network",
@@ -66,19 +67,27 @@ func (a *App) Run(ctx context.Context) error {
 
 		slog.Info(
 			"Connected to trusted Wi-Fi network",
+			stringAttr("alias", alias),
 			slog.String("bssid", networkState.BSSID),
 			slog.String("ssid", networkState.SSID),
 		)
 
-		if err := a.idleInhibitor.Inhibit(
-			fmt.Sprintf(
-				"Connected to Wi-Fi trusted network %s (%s)",
-				networkState.SSID, networkState.BSSID,
-			),
-		); err != nil {
+		reason := fmt.Sprintf("Connected to trusted Wi-Fi network %s (%s)", networkState.SSID, networkState.BSSID)
+		if alias != "" {
+			reason = fmt.Sprintf("Connected to trusted Wi-Fi network '%s' [%s] (%s)", alias, networkState.SSID, networkState.BSSID)
+		}
+
+		if err := a.idleInhibitor.Inhibit(reason); err != nil {
 			slog.Error("Failed to inhibit idle", slog.Any("error", err))
 		}
 	}
 
 	return nil
+}
+
+func stringAttr(key, val string) slog.Attr {
+	if val == "" {
+		return slog.Attr{}
+	}
+	return slog.String(key, val)
 }
