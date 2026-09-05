@@ -14,7 +14,7 @@ import (
 
 const configDir = "hometrust"
 
-func loadConfig() (*Config, error) { // TODO: find better architecture
+func loadConfig() (*Config, error) {
 	var config Config
 	if err := viper.Unmarshal(
 		&config,

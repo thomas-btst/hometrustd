@@ -20,6 +20,7 @@ type NetworkWatcher interface {
 type IdleInhibitor interface {
 	Inhibit(reason string) error
 	Uninhibit() error
+	Start(ctx context.Context) error
 }
 
 type App struct {
@@ -43,6 +44,10 @@ func (a *App) Run(ctx context.Context) error {
 		}
 	}()
 
+	if err := a.idleInhibitor.Start(ctx); err != nil {
+		return fmt.Errorf("failed to run idle inhibitor: %w", err)
+	}
+
 	netEvents, err := a.networkWatcher.Watch(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to start network monitor watch: %w", err)
@@ -50,20 +55,20 @@ func (a *App) Run(ctx context.Context) error {
 
 	cfgEvents := a.configStore.Watch(ctx)
 
-	a.updateIdleInhibition()
+	a.updateIdleInhibition(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-netEvents:
-			a.updateIdleInhibition()
+			a.updateIdleInhibition(ctx)
 		case <-cfgEvents:
-			a.updateIdleInhibition()
+			a.updateIdleInhibition(ctx)
 		}
 	}
 }
 
-func (a *App) updateIdleInhibition() {
+func (a *App) updateIdleInhibition(ctx context.Context) {
 	netState := a.networkWatcher.State()
 	trustNets := a.configStore.Current().TrustedNetworks
 

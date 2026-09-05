@@ -47,7 +47,8 @@ automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi 
 		}()
 
 		netMon := network.NewMonitor(systemConn)
-		idleInh := idle.NewInhibitor(sessionConn)
+		idleMon := idle.NewMonitor(sessionConn)
+		idleInh := idle.NewInhibitor(sessionConn, idleMon)
 
 		cfgStore, err := config.LoadAndWatch()
 		if err != nil {

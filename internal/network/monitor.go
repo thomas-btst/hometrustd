@@ -50,41 +50,21 @@ func NewMonitor(conn *godbus.Conn) *Monitor {
 	}
 }
 
-func (n *Monitor) initSignals(ctx context.Context) (chan *godbus.Signal, error) {
-	conn := n.client.Conn
-
+func (m *Monitor) Watch(ctx context.Context) (<-chan struct{}, error) {
 	matchOptions := []godbus.MatchOption{
 		godbus.WithMatchObjectPath(godbus.ObjectPath(dbusNMPath)),
 		godbus.WithMatchInterface(dbusFreedesktopPropertiesInterface),
 		godbus.WithMatchMember(dbusPropertiesSignal),
 	}
 
-	if err := conn.AddMatchSignal(matchOptions...); err != nil {
-		return nil, fmt.Errorf("failed to add dbus properties match signal: %w", err)
-	}
-
-	signals := make(chan *godbus.Signal, 10)
-	conn.Signal(signals)
-
-	go func() {
-		<-ctx.Done()
-		_ = conn.RemoveMatchSignal(matchOptions...)
-
-		conn.RemoveSignal(signals)
-	}()
-
-	return signals, nil
-}
-
-func (n *Monitor) Watch(ctx context.Context) (<-chan struct{}, error) {
-	signals, err := n.initSignals(ctx)
+	signals, err := m.client.Signals(ctx, matchOptions)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize dbus signals: %w", err)
 	}
 
-	states := make(chan struct{}, cap(signals))
+	netSignals := make(chan struct{}, 1)
 
-	state, err := n.info()
+	state, err := m.info()
 	if err != nil {
 		slog.Error(
 			"Error while getting network info",
@@ -92,12 +72,12 @@ func (n *Monitor) Watch(ctx context.Context) (<-chan struct{}, error) {
 		)
 	}
 
-	n.mu.Lock()
-	n.state = state
-	n.mu.Unlock()
+	m.mu.Lock()
+	m.state = state
+	m.mu.Unlock()
 
 	go func() {
-		defer close(states)
+		defer close(netSignals)
 
 		for {
 			select {
@@ -108,7 +88,7 @@ func (n *Monitor) Watch(ctx context.Context) (<-chan struct{}, error) {
 					return
 				}
 
-				newState, err := n.info()
+				newState, err := m.info()
 				if err != nil {
 					slog.Error(
 						"Error while getting network info",
@@ -116,39 +96,38 @@ func (n *Monitor) Watch(ctx context.Context) (<-chan struct{}, error) {
 					)
 				}
 
-				n.mu.Lock()
-				if newState == n.state {
-					n.mu.Unlock()
+				m.mu.Lock()
+				if newState == m.state {
+					m.mu.Unlock()
 					continue
 				}
 
-				n.state = newState
-				n.mu.Unlock()
+				m.state = newState
+				m.mu.Unlock()
 
 				select {
-				case states <- struct{}{}:
-				case <-ctx.Done():
-					return
+				case netSignals <- struct{}{}:
+				default:
 				}
 			}
 		}
 	}()
 
-	return states, nil
+	return netSignals, nil
 }
 
-func (n *Monitor) State() State {
-	n.mu.Lock()
-	defer n.mu.Unlock()
+func (m *Monitor) State() State {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
-	return n.state
+	return m.state
 }
 
-func (n *Monitor) info() (State, error) {
+func (m *Monitor) info() (State, error) {
 	disconnected := State{Connected: false}
 
 	// 1. Primary active connection
-	connPath, err := n.client.Object(dbusNMPath).Path(dbusPrimaryProperty)
+	connPath, err := m.client.Object(dbusNMPath).Path(dbusPrimaryProperty)
 	switch {
 	case err != nil:
 		return disconnected, fmt.Errorf("failed to read primary connection: %w", err)
@@ -157,7 +136,7 @@ func (n *Monitor) info() (State, error) {
 	}
 
 	// 2. Network devices associated with active connection
-	devPaths, err := n.client.Object(connPath).Paths(dbusDevicesProperty)
+	devPaths, err := m.client.Object(connPath).Paths(dbusDevicesProperty)
 	if err != nil {
 		return disconnected, fmt.Errorf("failed to read connection devices: %w", err)
 	}
@@ -167,7 +146,7 @@ func (n *Monitor) info() (State, error) {
 
 	devPath := dbus.EmptyPath
 	for _, path := range devPaths {
-		deviceType, err := n.client.Object(path).Uint32(dbusDeviceTypeProperty)
+		deviceType, err := m.client.Object(path).Uint32(dbusDeviceTypeProperty)
 		if err != nil {
 			return disconnected, fmt.Errorf("failed to read device type: %w", err)
 		}
@@ -183,7 +162,7 @@ func (n *Monitor) info() (State, error) {
 	}
 
 	// 3. Active access point for Wi-Fi card
-	apPath, err := n.client.Object(devPath).Path(dbusAccessPointProperty)
+	apPath, err := m.client.Object(devPath).Path(dbusAccessPointProperty)
 	switch {
 	case err != nil:
 		return disconnected, fmt.Errorf("failed to read active access point: %w", err)
@@ -192,7 +171,7 @@ func (n *Monitor) info() (State, error) {
 	}
 
 	// 4. Read SSID and HwAddress (BSSID) properties from AccessPoint D-Bus object
-	appObject := n.client.Object(apPath)
+	appObject := m.client.Object(apPath)
 
 	bssid, err := appObject.String(dbusBSSIDProperty)
 	if err != nil {
