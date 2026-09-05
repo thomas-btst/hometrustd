@@ -16,6 +16,7 @@ import (
 	"github.com/thomas-btst/hometrustd/internal/daemon"
 	"github.com/thomas-btst/hometrustd/internal/idle"
 	"github.com/thomas-btst/hometrustd/internal/network"
+	"github.com/thomas-btst/hometrustd/internal/notify"
 )
 
 var rootCmd = &cobra.Command{
@@ -55,7 +56,8 @@ automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi 
 			return fmt.Errorf("failed to load configuration: %w", err)
 		}
 
-		app := daemon.NewApp(netMon, idleInh, cfgStore)
+		notifSend := notify.NewClient(sessionConn, cfgStore)
+		app := daemon.NewApp(netMon, idleInh, notifSend, cfgStore)
 
 		if err := app.Run(cmd.Context()); err != nil {
 			return fmt.Errorf("failed to run daemon: %w", err)
@@ -66,15 +68,21 @@ automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi 
 }
 
 func init() {
+	rootCmd.Flags().BoolP("quiet", "q", false, "Disable desktop notifications")
+	if err := viper.BindPFlag("quiet", rootCmd.Flags().Lookup("quiet")); err != nil {
+		slog.Error(
+			"Failed to bind quiet flag to viper",
+			slog.Any("error", err),
+		)
+	}
+
 	rootCmd.Flags().StringToStringP(
 		"trusted-bssids",
 		"t",
 		nil,
 		"Comma-separated list of trusted Wi-Fi BSSIDs with optional aliases",
 	)
-
-	err := viper.BindPFlag("trusted_networks.bssids", rootCmd.Flags().Lookup("trusted-bssids"))
-	if err != nil {
+	if err := viper.BindPFlag("trusted_networks.bssids", rootCmd.Flags().Lookup("trusted-bssids")); err != nil {
 		slog.Error(
 			"Failed to bind trusted-bssids flag to viper",
 			slog.Any("error", err),

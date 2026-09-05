@@ -10,7 +10,11 @@ import (
 	"github.com/thomas-btst/hometrustd/internal/network"
 )
 
-const ProgramName = "hometrustd"
+const (
+	ProgramName = "hometrustd"
+	AppName     = "HomeTrust Daemon"
+	AppIcon     = "security-high"
+)
 
 type NetworkWatcher interface {
 	Watch(ctx context.Context) (<-chan struct{}, error)
@@ -19,27 +23,33 @@ type NetworkWatcher interface {
 
 type IdleInhibitor interface {
 	Inhibit(reason string) error
-	Uninhibit() error
+	Uninhibit() (bool, error)
 	Start(ctx context.Context) error
+}
+
+type NotifySender interface {
+	Send(summary, body string) error
 }
 
 type App struct {
 	networkWatcher NetworkWatcher
 	idleInhibitor  IdleInhibitor
+	notifySender   NotifySender
 	configStore    *config.Store
 }
 
-func NewApp(networkWatcher NetworkWatcher, idleInhibitor IdleInhibitor, cfgStore *config.Store) *App {
+func NewApp(networkWatcher NetworkWatcher, idleInhibitor IdleInhibitor, notifySender NotifySender, cfgStore *config.Store) *App {
 	return &App{
 		networkWatcher: networkWatcher,
 		idleInhibitor:  idleInhibitor,
+		notifySender:   notifySender,
 		configStore:    cfgStore,
 	}
 }
 
 func (a *App) Run(ctx context.Context) error {
 	defer func() {
-		if err := a.idleInhibitor.Uninhibit(); err != nil {
+		if _, err := a.idleInhibitor.Uninhibit(); err != nil {
 			slog.Error("Failed to uninhibit idle on exit", slog.Any("error", err))
 		}
 	}()
@@ -55,20 +65,20 @@ func (a *App) Run(ctx context.Context) error {
 
 	cfgEvents := a.configStore.Watch(ctx)
 
-	a.updateIdleInhibition(ctx)
+	a.updateIdleInhibition()
 	for {
 		select {
 		case <-ctx.Done():
 			return nil
 		case <-netEvents:
-			a.updateIdleInhibition(ctx)
+			a.updateIdleInhibition()
 		case <-cfgEvents:
-			a.updateIdleInhibition(ctx)
+			a.updateIdleInhibition()
 		}
 	}
 }
 
-func (a *App) updateIdleInhibition(ctx context.Context) {
+func (a *App) updateIdleInhibition() {
 	netState := a.networkWatcher.State()
 	trustNets := a.configStore.Current().TrustedNetworks
 
@@ -84,9 +94,17 @@ func (a *App) updateIdleInhibition(ctx context.Context) {
 			slog.Info("Disconnected from Wi-Fi network")
 		}
 
-		if err := a.idleInhibitor.Uninhibit(); err != nil {
+		if _, err := a.idleInhibitor.Uninhibit(); err != nil {
 			slog.Error("Failed to uninhibit idle", slog.Any("error", err))
 		}
+
+		if ok {
+			err := a.notifySender.Send("Disconnected from trusted Wi-Fi", "System idle behaviors restored")
+			if err != nil {
+				slog.Error("Failed to send notification", slog.Any("error", err))
+			}
+		}
+
 		return
 	}
 
@@ -96,6 +114,17 @@ func (a *App) updateIdleInhibition(ctx context.Context) {
 		slog.String("bssid", string(netState.BSSID)),
 		slog.String("ssid", netState.SSID),
 	)
+	name := netState.SSID
+	if alias != "" {
+		name = alias
+	}
+
+	if err := a.notifySender.Send(
+		fmt.Sprintf("Connected to Wi-Fi %s", name),
+		"System idle behaviors disabled",
+	); err != nil {
+		slog.Error("Failed to send notification", slog.Any("error", err))
+	}
 
 	reason := fmt.Sprintf("Connected to trusted Wi-Fi network %s (%s)", netState.SSID, netState.BSSID)
 	if alias != "" {

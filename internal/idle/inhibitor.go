@@ -105,7 +105,7 @@ func (i *Inhibitor) Inhibit(reason string) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if i.state != nil {
-		err := i.unInhibitUnlocked()
+		_, err := i.unInhibitUnlocked()
 		if err != nil {
 			return fmt.Errorf("failed to uninhibit previous inhibition: %w", err)
 		}
@@ -147,30 +147,30 @@ func (i *Inhibitor) inhibit(reason string) (uint32, error) {
 	return cookie, nil
 }
 
-func (i *Inhibitor) Uninhibit() error {
+func (i *Inhibitor) Uninhibit() (bool, error) {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	return i.unInhibitUnlocked()
 }
 
-func (i *Inhibitor) unInhibitUnlocked() error {
+func (i *Inhibitor) unInhibitUnlocked() (bool, error) {
 	if i.state == nil {
-		return nil
+		return false, nil
 	}
 
 	data := i.state
 	i.state = nil
 
 	if data.cookie == nil {
-		return nil
+		return true, nil
 	}
 
 	if _, err := i.client.Object(dbusScreensaverPath).Call(
 		dbusUninhibitCall,
 		*data.cookie,
 	); err != nil {
-		return fmt.Errorf("failed to call UnInhibit on screensaver: %w", err)
+		return true, fmt.Errorf("failed to call UnInhibit on screensaver: %w", err)
 	}
 
-	return nil
+	return true, nil
 }

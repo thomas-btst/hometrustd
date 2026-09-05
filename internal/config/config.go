@@ -3,6 +3,7 @@ package config
 
 type Config struct {
 	TrustedNetworks TrustedNetworks `mapstructure:"trusted_networks"`
+	Quiet           bool            `mapstructure:"quiet"`
 }
 
 func (c *Config) Validate() error {
