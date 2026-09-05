@@ -12,6 +12,16 @@
     systems = ["x86_64-linux" "aarch64-linux"];
     eachSystem = nixpkgs.lib.genAttrs systems;
   in {
+    homeModules.default = {pkgs, ...}: {
+      imports = [
+        ./module.nix
+      ];
+
+      _module.args = {
+        htdPkgs = self.packages.${pkgs.stdenv.hostPlatform.system};
+      };
+    };
+
     packages = eachSystem (
       system: let
         pkgs = nixpkgs.legacyPackages.${system};
@@ -21,29 +31,18 @@
       }
     );
 
-    apps = eachSystem (
-      system: rec {
-        hometrustd = {
-          type = "app";
-          program = nixpkgs.lib.getExe self.packages.${system}.hometrustd;
-          meta.description = "HomeTrust Daemon executable";
-        };
-        default = hometrustd;
-      }
-    );
+    apps = eachSystem (system:
+      import ./app.nix {
+        inherit (nixpkgs) lib;
+        inherit self system;
+      });
 
     devShells = eachSystem (
-      system: let
-        pkgs = nixpkgs.legacyPackages.${system};
-      in {
-        default = pkgs.mkShell {
-          buildInputs = with pkgs; [
-            go
-            gopls
-            golangci-lint
-          ];
-        };
-      }
+      system:
+        import ./shell.nix {
+          inherit self;
+          pkgs = nixpkgs.legacyPackages.${system};
+        }
     );
   };
 }

@@ -5,7 +5,7 @@ pkgs.buildGoModule {
 
   src = ./.;
 
-  vendorHash = "sha256-PTGksFXzBg5tdzpktqhdem/jNTHCKaxNhkvFrOi/0ag=";
+  vendorHash = "sha256-ABt6Hv+uJEfDqJ7/kBiSLgWPwuTh5pViJl+2inyqsyg=";
 
   meta = {
     description = "HomeTrust Daemon";
