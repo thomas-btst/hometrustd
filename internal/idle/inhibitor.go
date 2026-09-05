@@ -3,10 +3,10 @@ package idle
 
 import (
 	"fmt"
-	"os"
 	"sync"
 
 	godbus "github.com/godbus/dbus/v5"
+	"github.com/thomas-btst/hometrustd/internal/daemon"
 	"github.com/thomas-btst/hometrustd/internal/dbus"
 )
 
@@ -47,7 +47,7 @@ func (i *Inhibitor) Inhibit(reason string) error {
 
 	object := i.client.Object(dbusScreensaverPath)
 
-	call, err := object.Call(dbusInhibitCall, os.Args[0], reason)
+	call, err := object.Call(dbusInhibitCall, daemon.ProgramName, reason)
 	if err != nil {
 		return fmt.Errorf("failed to call Inhibit on screensaver: %w", err)
 	}

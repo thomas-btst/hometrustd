@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"sync"
 
 	godbus "github.com/godbus/dbus/v5"
 	"github.com/thomas-btst/hometrustd/internal/dbus"
@@ -33,11 +34,13 @@ const (
 
 type Monitor struct {
 	client *dbus.Client
+	mu     sync.Mutex
+	state  State
 }
 
 type State struct {
 	Connected bool
-	BSSID     string
+	BSSID     BSSID
 	SSID      string
 }
 
@@ -47,7 +50,7 @@ func NewMonitor(conn *godbus.Conn) *Monitor {
 	}
 }
 
-func (n *Monitor) Watch(ctx context.Context) (<-chan State, error) {
+func (n *Monitor) initSignals(ctx context.Context) (chan *godbus.Signal, error) {
 	conn := n.client.Conn
 
 	matchOptions := []godbus.MatchOption{
@@ -63,39 +66,38 @@ func (n *Monitor) Watch(ctx context.Context) (<-chan State, error) {
 	signals := make(chan *godbus.Signal, 10)
 	conn.Signal(signals)
 
-	states := make(chan State, cap(signals))
+	go func() {
+		<-ctx.Done()
+		_ = conn.RemoveMatchSignal(matchOptions...)
+
+		conn.RemoveSignal(signals)
+	}()
+
+	return signals, nil
+}
+
+func (n *Monitor) Watch(ctx context.Context) (<-chan struct{}, error) {
+	signals, err := n.initSignals(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize dbus signals: %w", err)
+	}
+
+	states := make(chan struct{}, cap(signals))
+
+	state, err := n.info()
+	if err != nil {
+		slog.Error(
+			"Error while getting network info",
+			slog.Any("error", err),
+		)
+	}
+
+	n.mu.Lock()
+	n.state = state
+	n.mu.Unlock()
 
 	go func() {
 		defer close(states)
-		defer conn.RemoveSignal(signals)
-		defer func() {
-			_ = conn.RemoveMatchSignal(matchOptions...)
-		}()
-
-		logError := func(err error) {
-			slog.Error(
-				"Error while getting network info",
-				slog.Any("error", err),
-			)
-		}
-
-		send := func(state State) bool {
-			select {
-			case states <- state:
-				return true
-			case <-ctx.Done():
-				return false
-			}
-		}
-
-		state, err := n.Info()
-		if err != nil {
-			logError(err)
-		}
-
-		if !send(state) {
-			return
-		}
 
 		for {
 			select {
@@ -106,18 +108,26 @@ func (n *Monitor) Watch(ctx context.Context) (<-chan State, error) {
 					return
 				}
 
-				currentState, err := n.Info()
+				newState, err := n.info()
 				if err != nil {
-					logError(err)
+					slog.Error(
+						"Error while getting network info",
+						slog.Any("error", err),
+					)
 				}
 
-				if currentState == state {
+				n.mu.Lock()
+				if newState == n.state {
+					n.mu.Unlock()
 					continue
 				}
 
-				state = currentState
+				n.state = newState
+				n.mu.Unlock()
 
-				if !send(state) {
+				select {
+				case states <- struct{}{}:
+				case <-ctx.Done():
 					return
 				}
 			}
@@ -127,7 +137,14 @@ func (n *Monitor) Watch(ctx context.Context) (<-chan State, error) {
 	return states, nil
 }
 
-func (n *Monitor) Info() (State, error) {
+func (n *Monitor) State() State {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+
+	return n.state
+}
+
+func (n *Monitor) info() (State, error) {
 	disconnected := State{Connected: false}
 
 	// 1. Primary active connection
@@ -189,7 +206,7 @@ func (n *Monitor) Info() (State, error) {
 
 	return State{
 		Connected: true,
-		BSSID:     bssid,
+		BSSID:     NewBSSID(bssid),
 		SSID:      string(ssidBytes),
 	}, nil
 }

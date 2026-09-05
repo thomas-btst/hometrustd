@@ -2,19 +2,21 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/godbus/dbus/v5"
 	"github.com/spf13/cobra"
-	"github.com/thomas-btst/hometrustd/internal/cli"
+	"github.com/spf13/viper"
+	"github.com/thomas-btst/hometrustd/internal/config"
 	"github.com/thomas-btst/hometrustd/internal/daemon"
 	"github.com/thomas-btst/hometrustd/internal/idle"
 	"github.com/thomas-btst/hometrustd/internal/network"
 )
-
-var trustedNetworks cli.OptionalStringMap
 
 var rootCmd = &cobra.Command{
 	Use:   "hometrustd",
@@ -47,12 +49,12 @@ automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi 
 		netMon := network.NewMonitor(systemConn)
 		idleInh := idle.NewInhibitor(sessionConn)
 
-		cfg := daemon.NewConfig(trustedNetworks)
-		if err := cfg.Validate(); err != nil {
-			slog.Warn("Configuration validation failed", slog.Any("error", err))
+		cfgStore, err := config.LoadAndWatch()
+		if err != nil {
+			return fmt.Errorf("failed to load configuration: %w", err)
 		}
 
-		app := daemon.NewApp(netMon, idleInh, cfg)
+		app := daemon.NewApp(netMon, idleInh, cfgStore)
 
 		if err := app.Run(cmd.Context()); err != nil {
 			return fmt.Errorf("failed to run daemon: %w", err)
@@ -63,16 +65,27 @@ automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi 
 }
 
 func init() {
-	rootCmd.Flags().VarP(
-		&trustedNetworks,
-		"trusted-networks",
+	rootCmd.Flags().StringToStringP(
+		"trusted-bssids",
 		"t",
+		nil,
 		"Comma-separated list of trusted Wi-Fi BSSIDs with optional aliases",
 	)
+
+	err := viper.BindPFlag("trusted_networks.bssids", rootCmd.Flags().Lookup("trusted-bssids"))
+	if err != nil {
+		slog.Error(
+			"Failed to bind trusted-bssids flag to viper",
+			slog.Any("error", err),
+		)
+	}
 }
 
 func Execute() {
-	if err := rootCmd.Execute(); err != nil {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := rootCmd.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
