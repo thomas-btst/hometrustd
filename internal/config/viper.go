@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/go-viper/mapstructure/v2"
@@ -80,6 +81,11 @@ func LoadAndWatch() (*Store, error) {
 		config, err = loadConfig()
 		if err != nil {
 			slog.Error("Failed to reload configuration", slog.Any("error", err))
+			return
+		}
+
+		current := store.Current()
+		if reflect.DeepEqual(current, config) {
 			return
 		}
 
