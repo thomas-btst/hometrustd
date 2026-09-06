@@ -1,0 +1,14 @@
+[Unit]
+Description=HomeTrust Daemon
+Documentation=https://github.com/thomas-btst/hometrustd
+After=network.target graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/hometrustd
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=graphical-session.target
