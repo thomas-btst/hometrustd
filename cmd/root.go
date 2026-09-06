@@ -47,17 +47,18 @@ automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi 
 			}
 		}()
 
-		netMon := network.NewMonitor(systemConn)
-		idleMon := idle.NewMonitor(sessionConn)
-		idleInh := idle.NewInhibitor(sessionConn, idleMon)
-
 		cfgStore, err := config.LoadAndWatch()
 		if err != nil {
 			return fmt.Errorf("failed to load configuration: %w", err)
 		}
 
 		notifSend := notify.NewClient(sessionConn, cfgStore)
-		app := daemon.NewApp(netMon, idleInh, notifSend, cfgStore)
+		netMon := network.NewMonitor(systemConn)
+		idleMon := idle.NewMonitor(sessionConn)
+		idleInh := idle.NewInhibitor(sessionConn, idleMon)
+		trustedMon := daemon.NewMonitor(netMon, cfgStore)
+
+		app := daemon.NewApp(trustedMon, idleInh, notifSend)
 
 		if err := app.Run(cmd.Context()); err != nil {
 			return fmt.Errorf("failed to run daemon: %w", err)

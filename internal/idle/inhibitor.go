@@ -8,8 +8,8 @@ import (
 	"sync"
 
 	godbus "github.com/godbus/dbus/v5"
-	"github.com/thomas-btst/hometrustd/internal/daemon"
 	"github.com/thomas-btst/hometrustd/internal/dbus"
+	"github.com/thomas-btst/hometrustd/internal/meta"
 )
 
 const dbusScreensaverInterface string = "org.freedesktop.ScreenSaver"
@@ -26,27 +26,32 @@ type inhibitionState struct {
 	cookie *uint32
 }
 
+type Watcher interface {
+	Watch(ctx context.Context) (<-chan struct{}, error)
+	IsAvailable() bool
+}
+
 type Inhibitor struct {
 	client  *dbus.Client
-	monitor *Monitor
+	watcher Watcher
 	mu      sync.Mutex
 	state   *inhibitionState
 }
 
-func NewInhibitor(conn *godbus.Conn, monitor *Monitor) *Inhibitor {
+func NewInhibitor(conn *godbus.Conn, watcher Watcher) *Inhibitor {
 	return &Inhibitor{
 		client:  dbus.NewClient(dbusScreensaverInterface, conn),
-		monitor: monitor,
+		watcher: watcher,
 	}
 }
 
 func (i *Inhibitor) Start(ctx context.Context) error {
-	idleEvent, err := i.monitor.Watch(ctx)
+	idleEvent, err := i.watcher.Watch(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to idle monitor: %w", err)
 	}
 
-	if available := i.monitor.IsAvailable(); !available {
+	if available := i.watcher.IsAvailable(); !available {
 		slog.Warn("Screensaver service is not available, skipping inhibition...")
 	}
 
@@ -60,7 +65,7 @@ func (i *Inhibitor) Start(ctx context.Context) error {
 					return
 				}
 
-				if available := i.monitor.IsAvailable(); !available {
+				if available := i.watcher.IsAvailable(); !available {
 					slog.Warn("Screensaver service is not available, skipping inhibition...")
 					i.mu.Lock()
 					if i.state != nil {
@@ -105,7 +110,7 @@ func (i *Inhibitor) Inhibit(reason string) error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	if i.state != nil {
-		_, err := i.unInhibitUnlocked()
+		err := i.unInhibitUnlocked()
 		if err != nil {
 			return fmt.Errorf("failed to uninhibit previous inhibition: %w", err)
 		}
@@ -116,7 +121,7 @@ func (i *Inhibitor) Inhibit(reason string) error {
 		cookie: nil,
 	}
 
-	if available := i.monitor.IsAvailable(); !available {
+	if available := i.watcher.IsAvailable(); !available {
 		return nil
 	}
 
@@ -132,7 +137,7 @@ func (i *Inhibitor) Inhibit(reason string) error {
 func (i *Inhibitor) inhibit(reason string) (uint32, error) {
 	call, err := i.client.Object(dbusScreensaverPath).Call(
 		dbusInhibitCall,
-		daemon.ProgramName,
+		meta.ProgramName,
 		reason,
 	)
 	if err != nil {
@@ -147,30 +152,30 @@ func (i *Inhibitor) inhibit(reason string) (uint32, error) {
 	return cookie, nil
 }
 
-func (i *Inhibitor) Uninhibit() (bool, error) {
+func (i *Inhibitor) Uninhibit() error {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 	return i.unInhibitUnlocked()
 }
 
-func (i *Inhibitor) unInhibitUnlocked() (bool, error) {
+func (i *Inhibitor) unInhibitUnlocked() error {
 	if i.state == nil {
-		return false, nil
+		return nil
 	}
 
 	data := i.state
 	i.state = nil
 
 	if data.cookie == nil {
-		return true, nil
+		return nil
 	}
 
 	if _, err := i.client.Object(dbusScreensaverPath).Call(
 		dbusUninhibitCall,
 		*data.cookie,
 	); err != nil {
-		return true, fmt.Errorf("failed to call UnInhibit on screensaver: %w", err)
+		return fmt.Errorf("failed to call UnInhibit on screensaver: %w", err)
 	}
 
-	return true, nil
+	return nil
 }

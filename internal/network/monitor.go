@@ -62,8 +62,6 @@ func (m *Monitor) Watch(ctx context.Context) (<-chan struct{}, error) {
 		return nil, fmt.Errorf("failed to initialize dbus signals: %w", err)
 	}
 
-	netSignals := make(chan struct{}, 1)
-
 	state, err := m.info()
 	if err != nil {
 		slog.Error(
@@ -75,6 +73,8 @@ func (m *Monitor) Watch(ctx context.Context) (<-chan struct{}, error) {
 	m.mu.Lock()
 	m.state = state
 	m.mu.Unlock()
+
+	netSignals := make(chan struct{}, 1)
 
 	go func() {
 		defer close(netSignals)

@@ -2,13 +2,14 @@
 package notify
 
 import (
+	"context"
 	"fmt"
 	"sync"
 
 	godbus "github.com/godbus/dbus/v5"
 	"github.com/thomas-btst/hometrustd/internal/config"
-	"github.com/thomas-btst/hometrustd/internal/daemon"
 	"github.com/thomas-btst/hometrustd/internal/dbus"
+	"github.com/thomas-btst/hometrustd/internal/meta"
 )
 
 const (
@@ -35,22 +36,27 @@ type message struct {
 	ReplacesID uint32
 }
 
-type Client struct {
-	client      *dbus.Client
-	configStore *config.Store
-	mu          sync.Mutex
-	lastID      uint32
+type ConfigWatcher interface {
+	Watch(ctx context.Context) <-chan struct{}
+	Current() *config.Config
 }
 
-func NewClient(conn *godbus.Conn, cfgStore *config.Store) *Client {
+type Client struct {
+	client        *dbus.Client
+	configWatcher ConfigWatcher
+	mu            sync.Mutex
+	lastID        uint32
+}
+
+func NewClient(conn *godbus.Conn, cfgWatcher ConfigWatcher) *Client {
 	return &Client{
-		client:      dbus.NewClient(dbusInterface, conn),
-		configStore: cfgStore,
+		client:        dbus.NewClient(dbusInterface, conn),
+		configWatcher: cfgWatcher,
 	}
 }
 
 func (c *Client) send(msg message) (bool, uint32, error) {
-	config := c.configStore.Current()
+	config := c.configWatcher.Current()
 	if config.Quiet {
 		return false, 0, nil
 	}
@@ -86,8 +92,8 @@ func (c *Client) Send(summary, body string) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	ok, id, err := c.send(message{
-		AppName:    daemon.AppName,
-		Icon:       daemon.AppIcon,
+		AppName:    meta.AppName,
+		Icon:       meta.AppIcon,
 		Summary:    summary,
 		Body:       body,
 		Urgency:    normalUrgency,
