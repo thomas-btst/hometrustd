@@ -27,8 +27,8 @@ type inhibitionState struct {
 }
 
 type Watcher interface {
-	Watch(ctx context.Context) (<-chan struct{}, error)
-	IsAvailable() bool
+	Watch(ctx context.Context, targetInterface string) (<-chan struct{}, error)
+	IsAvailable(targetInterface string) bool
 }
 
 type Inhibitor struct {
@@ -46,12 +46,12 @@ func NewInhibitor(conn *godbus.Conn, watcher Watcher) *Inhibitor {
 }
 
 func (i *Inhibitor) Start(ctx context.Context) error {
-	idleEvent, err := i.watcher.Watch(ctx)
+	idleEvent, err := i.watcher.Watch(ctx, dbusScreensaverInterface)
 	if err != nil {
 		return fmt.Errorf("failed to subscribe to idle monitor: %w", err)
 	}
 
-	if available := i.watcher.IsAvailable(); !available {
+	if available := i.watcher.IsAvailable(dbusScreensaverInterface); !available {
 		slog.Warn("Screensaver service is not available, skipping inhibition...")
 	}
 
@@ -65,7 +65,7 @@ func (i *Inhibitor) Start(ctx context.Context) error {
 					return
 				}
 
-				if available := i.watcher.IsAvailable(); !available {
+				if available := i.watcher.IsAvailable(dbusScreensaverInterface); !available {
 					slog.Warn("Screensaver service is not available, skipping inhibition...")
 					i.mu.Lock()
 					if i.state != nil {
@@ -121,7 +121,7 @@ func (i *Inhibitor) Inhibit(reason string) error {
 		cookie: nil,
 	}
 
-	if available := i.watcher.IsAvailable(); !available {
+	if available := i.watcher.IsAvailable(dbusScreensaverInterface); !available {
 		return nil
 	}
 

@@ -9,11 +9,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/godbus/dbus/v5"
+	godbus "github.com/godbus/dbus/v5"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/thomas-btst/hometrustd/internal/config"
 	"github.com/thomas-btst/hometrustd/internal/daemon"
+	"github.com/thomas-btst/hometrustd/internal/dbus"
 	"github.com/thomas-btst/hometrustd/internal/idle"
 	"github.com/thomas-btst/hometrustd/internal/network"
 	"github.com/thomas-btst/hometrustd/internal/notify"
@@ -27,7 +28,7 @@ automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi 
 	Example: `  # Start daemon with trusted Wi-Fi BSSIDs and optional aliases
   hometrustd -t 00:11:22:33:44:55=Home,66:77:88:99:AA:BB`,
 	RunE: func(cmd *cobra.Command, args []string) error {
-		systemConn, err := dbus.ConnectSystemBus()
+		systemConn, err := godbus.ConnectSystemBus()
 		if err != nil {
 			return fmt.Errorf("failed to connect to system dbus: %w", err)
 		}
@@ -37,7 +38,7 @@ automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi 
 			}
 		}()
 
-		sessionConn, err := dbus.ConnectSessionBus()
+		sessionConn, err := godbus.ConnectSessionBus()
 		if err != nil {
 			return fmt.Errorf("failed to connect to session dbus: %w", err)
 		}
@@ -54,9 +55,13 @@ automatically manages system idle inhibition (via D-Bus) based on trusted Wi-Fi 
 
 		notifSend := notify.NewClient(sessionConn, cfgStore)
 		netMon := network.NewMonitor(systemConn)
-		idleMon := idle.NewMonitor(sessionConn)
-		idleInh := idle.NewInhibitor(sessionConn, idleMon)
+		dbusSessionMon := dbus.NewMonitor(sessionConn)
+		idleInh := idle.NewInhibitor(sessionConn, dbusSessionMon)
 		trustedMon := daemon.NewMonitor(netMon, cfgStore)
+
+		if err := dbusSessionMon.Start(cmd.Context()); err != nil {
+			return fmt.Errorf("failed to start dbus session monitor: %w", err)
+		}
 
 		app := daemon.NewApp(trustedMon, idleInh, notifSend)
 
