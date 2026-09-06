@@ -12,4 +12,6 @@ pkgs.buildGoModule {
     homepage = "https://github.com/thomas-btst/hometrustd";
     mainProgram = "hometrustd";
   };
+
+  ldflags = ["-s" "-w"];
 }
