@@ -5,11 +5,11 @@
   htdPkgs,
   ...
 }: let
-  inherit (lib) mkEnableOption mkPackageOption mkOption mkIf types;
-  cfg = config.programs.hometrustd;
+  inherit (lib) mkEnableOption mkPackageOption mkOption mkIf types getExe;
+  cfg = config.services.hometrustd;
   toYAML = pkgs.formats.yaml {};
 in {
-  options.programs.hometrustd = {
+  options.services.hometrustd = {
     enable = mkEnableOption "HomeTrust Daemon";
 
     package = mkPackageOption htdPkgs "HomeTrust Daemon" {
@@ -31,6 +31,25 @@ in {
   };
 
   config = mkIf cfg.enable {
+    systemd.user.services.hometrustd = {
+      Unit = {
+        Description = "HomeTrust Daemon";
+        Documentation = "https://github.com/thomas-btst/hometrustd";
+        After = ["network.target"];
+      };
+
+      Service = {
+        Type = "simple";
+        ExecStart = getExe cfg.package;
+        Restart = "on-failure";
+        RestartSec = "5s";
+      };
+
+      Install = {
+        WantedBy = ["default.target"];
+      };
+    };
+
     home.packages = [cfg.package];
 
     xdg.configFile."hometrust/config.yml".source = mkIf (cfg.settings != null) (toYAML.generate "hometrust.yml" cfg.settings);
